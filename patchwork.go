@@ -8,25 +8,30 @@ import (
 	"os/exec"
 	"strconv"
 
+	"github.com/f2prateek/go-circle"
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
 
 // Patchwork lets you apply a patch across repos.
 type Patchwork struct {
-	github *github.Client
+	github  *github.Client
+	circle  circle.CircleCI
+	Message string
+	Branch  string
+	Repos   []Repository
 }
 
 // New creates a Patchwork client.
-func New(token string) *Patchwork {
+func New(githubToken, circleToken string) *Patchwork {
 	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: token},
+		&oauth2.Token{AccessToken: githubToken},
 	)
 	tc := oauth2.NewClient(oauth2.NoContext, ts)
 
-	client := github.NewClient(tc)
 	return &Patchwork{
-		github: client,
+		github: github.NewClient(tc),
+		circle: circle.New(circleToken),
 	}
 }
 
@@ -36,24 +41,9 @@ type Repository struct {
 	Repo  string
 }
 
-// ApplyOptions represents the arguments that can be passed to Apply.
-type ApplyOptions struct {
-	Repos   []Repository
-	Message string
-	Branch  string
-}
-
-// AddRepo adds a repo to apply the patch.
-func (options *ApplyOptions) AddRepo(owner, repo string) {
-	if len(options.Repos) == 0 {
-		options.Repos = make([]Repository, 0)
-	}
-	options.Repos = append(options.Repos, Repository{owner, repo})
-}
-
 // Apply the given patch across the given repos.
-func (patchwork *Patchwork) Apply(options ApplyOptions, patch func(repo *github.Repository, directory string)) {
-	for _, repo := range options.Repos {
+func (patchwork *Patchwork) Apply(patch func(repo *github.Repository, directory string)) {
+	for _, repo := range patchwork.Repos {
 		repository, _, err := patchwork.github.Repositories.Get(repo.Owner, repo.Repo)
 		if err != nil {
 			log.Fatal("could not fetch github information", err)
@@ -74,9 +64,13 @@ func (patchwork *Patchwork) Apply(options ApplyOptions, patch func(repo *github.
 		patch(repository, dir)
 
 		patchwork.run(dir, "git", "add", "-A")
-		patchwork.run(dir, "git", "commit", "-m", options.Message)
-		patchwork.run(dir, "git", "push", "origin", "master:"+options.Branch)
+		patchwork.run(dir, "git", "commit", "-m", patchwork.Message)
+		patchwork.run(dir, "git", "push", "origin", "master:"+patchwork.Branch)
 	}
+}
+
+func (patchwork *Patchwork) wait(ch chan Repository) {
+
 }
 
 func (patchwork *Patchwork) run(dir, name string, args ...string) {

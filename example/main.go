@@ -13,16 +13,14 @@ import (
 )
 
 func main() {
-	token := os.Getenv("GITHUB_TOKEN")
-	p := patchwork.New(token)
+	p := patchwork.New(os.Getenv("GITHUB_TOKEN"), os.Getenv("CIRCLE_TOKEN"))
+	p.Message = "Updating Circle config to use Saucelabs."
+	p.Branch = "make-test-sauce"
+	p.Repos = []patchwork.Repository{
+		{"segment-integrations", "analytics.js-integration-chameleon"},
+	}
 
-	opts := &patchwork.ApplyOptions{}
-	opts.Message = "Updating Circle config to use Saucelabs."
-	opts.Branch = "make-test-sauce"
-
-	opts.AddRepo("segment-integrations", "analytics.js-integration-chameleon")
-
-	p.Apply(*opts, func(repo *github.Repository, dir string) {
+	p.Apply(func(repo *github.Repository, dir string) {
 		// sed wasn't playing nicely :(
 		circleFile := dir + "/circle.yml"
 		circleConfig, err := ioutil.ReadFile(circleFile)
