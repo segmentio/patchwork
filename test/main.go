@@ -38,7 +38,7 @@ func main() {
 		}
 		lines := strings.Split(string(circleConfig), "\n")
 		for i, line := range lines {
-			lines[i] = strings.Replace(line, "testing", "testing success", 1)
+			lines[i] = strings.Replace(line, "echo 'testing'", "echo 'testing2'", 1)
 		}
 		output := strings.Join(lines, "\n")
 		err = ioutil.WriteFile(circleFile, []byte(output), 0644)

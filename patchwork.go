@@ -141,7 +141,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 	}
 
 	if !success {
-		log.Fatal("There were some build failures. Aborting.")
+		log.Fatal("There were some CI failures. Aborting.")
 	}
 
 	for _, result := range results {
