@@ -20,7 +20,7 @@ func main() {
 	p.Debug = true
 
 	rand.Seed(time.Now().Unix())
-	n := strconv.Itoa(rand.Intn(4000))
+	n := strconv.Itoa(rand.Int())
 
 	opts := &patchwork.ApplyOptions{}
 	opts.Message = "Testing Patchwork!" + n
