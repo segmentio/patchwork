@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,9 +51,14 @@ type ApplyOptions struct {
 	Repos   []Repository
 }
 
+type patchedCommit struct {
+	repo Repository
+	sha  string
+}
+
 // Apply the given patch across the given repos.
 func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) {
-	reposC := make(chan Repository)
+	patchesC := make(chan patchedCommit)
 	doneBuilds := make(chan bool)
 
 	var resultsLock sync.Mutex
@@ -60,36 +66,51 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 	go func() {
 		var wg sync.WaitGroup
-		for repo := range reposC {
+		for patch := range patchesC {
 			wg.Add(1)
 
-			go func(repo Repository) {
+			go func(patch patchedCommit) {
 				defer wg.Done()
 
 				for {
-					patchwork.logf("waiting for CI of branch %v of %v", opts.Branch, repo)
+					patchwork.logf("waiting for CI of branch %v of %v", opts.Branch, patch.repo)
 					time.Sleep(1 * time.Minute)
 
-					patchwork.logf("fetching CI status for branch %v of %v", opts.Branch, repo)
-					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(repo.Owner, repo.Repo, opts.Branch, circle.RecentBuildsOptions{
+					patchwork.logf("fetching CI status for branch %v of %v", opts.Branch, patch.repo)
+					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(patch.repo.Owner, patch.repo.Repo, opts.Branch, circle.RecentBuildsOptions{
 						Filter: pointers.String("completed"),
 					})
 					if err != nil {
-						log.Fatal("couldn't get recent builds for repo", repo, err)
+						log.Fatal("couldn't get recent builds for repo", patch.repo, err)
 					}
 
 					if len(summaries) == 0 {
-						patchwork.logf("no completed builds for branch %v of repo %v", opts.Branch, repo)
+						patchwork.logf("no completed builds for branch %v of repo %v", opts.Branch, patch.repo)
 						continue
 					}
 
-					patchwork.logf("successfully built branch %v of repo %v", opts.Branch, repo)
-					resultsLock.Lock()
-					results = append(results, summaries[0])
-					resultsLock.Unlock()
-					break
+					success := false
+					for _, summary := range summaries {
+						if len(summary.CommitDetails) == 0 {
+							continue
+						}
+
+						if summary.CommitDetails[0].Commit == patch.sha {
+							patchwork.logf("successfully built branch %v for commit %s of repo %v", opts.Branch, patch.sha, patch.repo)
+							resultsLock.Lock()
+							results = append(results, summaries[0])
+							resultsLock.Unlock()
+							success = true
+							break
+						}
+					}
+
+					if success {
+						break
+					}
+					patchwork.logf("no completed builds on branch %v for commit %s of repo %v", opts.Branch, patch.sha, patch.repo)
 				}
-			}(repo)
+			}(patch)
 		}
 		wg.Wait()
 		doneBuilds <- true
@@ -126,9 +147,12 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 		run(dir, "git", "commit", "-m", opts.Message)
 		run(dir, "git", "push", "origin", opts.Branch)
 
-		reposC <- repo
+		sha := strings.Trim(run(dir, "git", "rev-parse", "HEAD"), "\n ")
+		patchwork.logf("pushed commit %s to branch %v for %v", sha, opts.Branch, repo)
+
+		patchesC <- patchedCommit{repo, sha}
 	}
-	close(reposC)
+	close(patchesC)
 
 	<-doneBuilds
 
@@ -172,7 +196,7 @@ func (patchwork *Patchwork) logf(format string, v ...interface{}) {
 
 // Run will run command `name` in the given `dir` directory with the given
 // arguments. It also logs the output of the command in case of a failure.
-func run(dir, name string, args ...string) {
+func run(dir, name string, args ...string) string {
 	command := exec.Command(name, args...)
 	var buf bytes.Buffer
 	command.Stdout = &buf
@@ -183,4 +207,5 @@ func run(dir, name string, args ...string) {
 		log.Println(buf.String())
 		log.Fatal(err)
 	}
+	return buf.String()
 }
