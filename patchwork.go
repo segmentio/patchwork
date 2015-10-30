@@ -73,10 +73,6 @@ func (patchwork *Patchwork) Apply(options ApplyOptions, patch func(repo *github.
 			log.Fatal("could not change directory", err)
 		}
 
-		if err := exec.Command("git", "checkout", "-b", options.Branch).Run(); err != nil {
-			log.Fatal("could not checkout branch", err)
-		}
-
 		patch(repository, dir)
 
 		out, err := exec.Command("git", "diff").Output()
@@ -93,7 +89,7 @@ func (patchwork *Patchwork) Apply(options ApplyOptions, patch func(repo *github.
 			log.Fatal("could not commit files", err)
 		}
 
-		if err := exec.Command("git", "push", "origin", options.Branch).Run(); err != nil {
+		if err := exec.Command("git", "push", "origin", "master:"+options.Branch).Run(); err != nil {
 			log.Fatal("could not push", err)
 		}
 	}
