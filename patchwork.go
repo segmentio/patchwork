@@ -2,7 +2,6 @@ package patchwork
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -49,10 +48,19 @@ type ApplyOptions struct {
 	Repos   []Repository
 }
 
+// Result represents the result of the apply operation.
+type Result struct {
+	Repo    Repository
+	Success bool
+}
+
 // Apply the given patch across the given repos.
-func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) {
+func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) []Result {
 	reposC := make(chan Repository)
 	done := make(chan bool)
+
+	var resultsLock sync.Mutex
+	results := make([]Result, 0)
 
 	go func() {
 		var wg sync.WaitGroup
@@ -93,9 +101,11 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 					if !*result.Merged {
 						log.Fatal("could not merge PR", err)
 					}
-					fmt.Println(repo, "success!")
+					resultsLock.Lock()
+					results = append(results, Result{repo, true})
+					resultsLock.Unlock()
 				} else {
-					fmt.Println(repo, "failed", summary)
+					results = append(results, Result{repo, false})
 				}
 
 			}(repo)
@@ -132,8 +142,10 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 		reposC <- repo
 	}
+	close(reposC)
 
 	<-done
+	return results
 }
 
 func latestSummary(branch string, summaries []circle.BuildSummary) circle.BuildSummary {
