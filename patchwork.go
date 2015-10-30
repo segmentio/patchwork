@@ -100,9 +100,9 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 		}
 		defer os.Remove(dir)
 
-		patchwork.run(dir, "git", "clone", *repository.SSHURL, dir)
+		run(dir, "git", "clone", *repository.SSHURL, dir)
 		// Checking out a branch is probably unnecessary.
-		patchwork.run(dir, "git", "checkout", "-b", opts.Branch)
+		run(dir, "git", "checkout", "-b", opts.Branch)
 
 		if err := os.Chdir(dir); err != nil {
 			log.Fatal("could not change directory", err)
@@ -110,9 +110,9 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 		patch(repository, dir)
 
-		patchwork.run(dir, "git", "add", "-A")
-		patchwork.run(dir, "git", "commit", "-m", opts.Message)
-		patchwork.run(dir, "git", "push", "origin", opts.Branch)
+		run(dir, "git", "add", "-A")
+		run(dir, "git", "commit", "-m", opts.Message)
+		run(dir, "git", "push", "origin", opts.Branch)
 
 		reposC <- repo
 	}
@@ -161,15 +161,17 @@ func latestSummary(branch string, summaries []circle.BuildSummary) circle.BuildS
 	return circle.BuildSummary{}
 }
 
-func (patchwork *Patchwork) run(dir, name string, args ...string) {
+// Run will run command `name` in the given `dir` directory with the given
+// arguments. It also logs the output of the command in case of a failure.
+func run(dir, name string, args ...string) {
 	command := exec.Command(name, args...)
-	var out bytes.Buffer
-	command.Stdout = &out
-	command.Stderr = &out
+	var buf bytes.Buffer
+	command.Stdout = &buf
+	command.Stderr = &buf
 	command.Dir = dir
 	if err := command.Run(); err != nil {
 		log.Println("could not run", name, args)
-		log.Println(out.String())
+		log.Println(buf.String())
 		log.Fatal(err)
 	}
 }
