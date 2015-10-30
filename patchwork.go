@@ -2,6 +2,7 @@ package patchwork
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -48,19 +49,13 @@ type ApplyOptions struct {
 	Repos   []Repository
 }
 
-// Result represents the result of the apply operation.
-type Result struct {
-	Repo    Repository
-	Success bool
-}
-
 // Apply the given patch across the given repos.
 func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) {
 	reposC := make(chan Repository)
 	doneBuilds := make(chan bool)
 
 	var resultsLock sync.Mutex
-	results := make([]Result, 0)
+	var results []circle.BuildSummary
 
 	go func() {
 		var wg sync.WaitGroup
@@ -84,12 +79,8 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 					time.Sleep(2 * time.Minute)
 				}
 
-				success := false
-				if summary.Outcome == "success" {
-					success = true
-				}
 				resultsLock.Lock()
-				results = append(results, Result{repo, success})
+				results = append(results, summary)
 				resultsLock.Unlock()
 			}(repo)
 		}
@@ -129,14 +120,20 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 	<-doneBuilds
 
+	success := true
 	for _, result := range results {
-		if !result.Success {
-			log.Fatalf("repo %s/%s failed to build", result.Repo.Owner, result.Repo.Repo)
+		if result.Outcome != "success" {
+			success = false
+			fmt.Printf("repo %s/%s failed to build\n", result.Username, result.Reponame)
 		}
 	}
 
+	if !success {
+		log.Fatal("There were some build failures. Aborting.")
+	}
+
 	for _, result := range results {
-		pr, _, err := patchwork.github.PullRequests.Create(result.Repo.Owner, result.Repo.Repo, &github.NewPullRequest{
+		pr, _, err := patchwork.github.PullRequests.Create(result.Username, result.Reponame, &github.NewPullRequest{
 			Title: &opts.Message,
 			Head:  &opts.Branch,
 			Base:  pointers.String("master"),
@@ -145,7 +142,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 			log.Fatal("could not create PR", err)
 		}
 
-		result, _, err := patchwork.github.PullRequests.Merge(result.Repo.Owner, result.Repo.Repo, *pr.Number, opts.Message)
+		result, _, err := patchwork.github.PullRequests.Merge(result.Username, result.Reponame, *pr.Number, opts.Message)
 		if err != nil {
 			log.Fatal("could not merge PR", err)
 		}
@@ -153,7 +150,6 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 			log.Fatal("could not merge PR", err)
 		}
 	}
-
 }
 
 func latestSummary(branch string, summaries []circle.BuildSummary) circle.BuildSummary {
