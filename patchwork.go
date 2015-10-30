@@ -65,23 +65,24 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 			go func(repo Repository) {
 				defer wg.Done()
 
-				var summary circle.BuildSummary
 				for {
-					summaries, err := patchwork.circle.RecentBuildsForProject(repo.Owner, repo.Repo)
+					time.Sleep(2 * time.Minute)
+
+					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(repo.Owner, repo.Repo, opts.Branch, circle.RecentBuildsOptions{
+						Filter: pointers.String("completed"),
+					})
 					if err != nil {
 						log.Fatal("couldn't get recent builds for repo", repo, err)
 					}
 
-					summary = latestSummary(opts.Branch, summaries)
-					if summary.Lifecycle == "finished" {
-						break
+					if len(summaries) == 0 {
+						continue
 					}
-					time.Sleep(2 * time.Minute)
-				}
 
-				resultsLock.Lock()
-				results = append(results, summary)
-				resultsLock.Unlock()
+					resultsLock.Lock()
+					results = append(results, summaries[0])
+					resultsLock.Unlock()
+				}
 			}(repo)
 		}
 		wg.Wait()
@@ -150,15 +151,6 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 			log.Fatal("could not merge PR", err)
 		}
 	}
-}
-
-func latestSummary(branch string, summaries []circle.BuildSummary) circle.BuildSummary {
-	for _, summary := range summaries {
-		if summary.Branch == branch {
-			return summary
-		}
-	}
-	return circle.BuildSummary{}
 }
 
 // Run will run command `name` in the given `dir` directory with the given
