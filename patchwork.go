@@ -67,7 +67,8 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 				defer wg.Done()
 
 				for {
-					time.Sleep(2 * time.Minute)
+					patchwork.logf("waiting for CI of branch %v of %v", opts.Branch, repo)
+					time.Sleep(1 * time.Minute)
 
 					patchwork.logf("fetching CI status for branch %v of %v", opts.Branch, repo)
 					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(repo.Owner, repo.Repo, opts.Branch, circle.RecentBuildsOptions{
@@ -82,6 +83,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 						continue
 					}
 
+					patchwork.logf("built branch %v of repo %v successfully", opts.Branch, repo)
 					resultsLock.Lock()
 					results = append(results, summaries[0])
 					resultsLock.Unlock()

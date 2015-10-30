@@ -17,6 +17,7 @@ import (
 
 func main() {
 	p := patchwork.New(os.Getenv("GITHUB_TOKEN"), os.Getenv("CIRCLE_TOKEN"))
+	p.Debug = true
 
 	rand.Seed(time.Now().Unix())
 	n := strconv.Itoa(rand.Intn(4000))
