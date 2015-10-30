@@ -105,7 +105,9 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 					results = append(results, Result{repo, true})
 					resultsLock.Unlock()
 				} else {
+					resultsLock.Lock()
 					results = append(results, Result{repo, false})
+					resultsLock.Unlock()
 				}
 
 			}(repo)
