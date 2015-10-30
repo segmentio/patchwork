@@ -17,9 +17,9 @@ func main() {
 
 	opts := &patchwork.ApplyOptions{}
 	opts.Message = "Updating Circle config to use Saucelabs."
-	opts.Branch = "make-test-sauce"
+	opts.Branch = "test-make-test-sauce-2"
 	opts.Repos = []patchwork.Repository{
-		{"segment-integrations", "analytics.js-integration-chameleon"},
+		{"segment-integrations", "analytics.js-integration-mixpanel"},
 	}
 
 	p.Apply(*opts, func(repo *github.Repository, dir string) {

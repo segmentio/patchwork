@@ -2,11 +2,14 @@ package patchwork
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/f2prateek/go-circle"
 	"github.com/google/go-github/github"
@@ -47,6 +50,43 @@ type ApplyOptions struct {
 
 // Apply the given patch across the given repos.
 func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) {
+	reposC := make(chan Repository)
+	done := make(chan bool)
+
+	go func() {
+		var wg sync.WaitGroup
+		for repo := range reposC {
+			wg.Add(1)
+
+			go func(repo Repository) {
+				defer wg.Done()
+
+				var summary circle.BuildSummary
+				for {
+					summaries, err := patchwork.circle.RecentBuildsForProject(repo.Owner, repo.Repo)
+					if err != nil {
+						log.Fatal("couldn't get recent builds for repo", repo, err)
+					}
+
+					summary = latestSummary(opts.Branch, summaries)
+					if summary.Lifecycle == "finished" {
+						break
+					}
+					time.Sleep(2 * time.Minute)
+				}
+
+				if summary.Outcome == "success" {
+					fmt.Println(repo, "succeeeded")
+				} else {
+					fmt.Println(repo, "failed", summary)
+				}
+
+			}(repo)
+		}
+		wg.Wait()
+		done <- true
+	}()
+
 	for _, repo := range opts.Repos {
 		repository, _, err := patchwork.github.Repositories.Get(repo.Owner, repo.Repo)
 		if err != nil {
@@ -60,6 +100,8 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 		defer os.Remove(dir)
 
 		patchwork.run(dir, "git", "clone", *repository.SSHURL, dir)
+		// Checking out a branch is probably unnecessary.
+		patchwork.run(dir, "git", "checkout", "-b", opts.Branch)
 
 		if err := os.Chdir(dir); err != nil {
 			log.Fatal("could not change directory", err)
@@ -69,8 +111,21 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 		patchwork.run(dir, "git", "add", "-A")
 		patchwork.run(dir, "git", "commit", "-m", opts.Message)
-		patchwork.run(dir, "git", "push", "origin", "master:"+opts.Branch)
+		patchwork.run(dir, "git", "push", "origin", opts.Branch)
+
+		reposC <- repo
 	}
+
+	<-done
+}
+
+func latestSummary(branch string, summaries []circle.BuildSummary) circle.BuildSummary {
+	for _, summary := range summaries {
+		if summary.Branch == branch {
+			return summary
+		}
+	}
+	return circle.BuildSummary{}
 }
 
 func (patchwork *Patchwork) run(dir, name string, args ...string) {
