@@ -3,7 +3,6 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -29,7 +28,7 @@ func main() {
 		{"segmentio", "patchwork-test"},
 	}
 
-	results := p.Apply(*opts, func(repo *github.Repository, dir string) {
+	p.Apply(*opts, func(repo *github.Repository, dir string) {
 		// sed wasn't playing nicely :(
 		circleFile := dir + "/circle.yml"
 		circleConfig, err := ioutil.ReadFile(circleFile)
@@ -46,10 +45,4 @@ func main() {
 			log.Fatalln(err)
 		}
 	})
-
-	for _, r := range results {
-		if !r.Success {
-			fmt.Println("failed for ", r)
-		}
-	}
 }
