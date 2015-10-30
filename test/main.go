@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/github"
 	"github.com/segmentio/patchwork"
@@ -17,6 +18,7 @@ import (
 func main() {
 	p := patchwork.New(os.Getenv("GITHUB_TOKEN"), os.Getenv("CIRCLE_TOKEN"))
 
+	rand.Seed(time.Now().Unix())
 	n := strconv.Itoa(rand.Intn(4000))
 
 	opts := &patchwork.ApplyOptions{}
