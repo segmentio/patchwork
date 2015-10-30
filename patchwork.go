@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/f2prateek/go-circle"
+	"github.com/f2prateek/go-pointers"
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
@@ -76,7 +77,23 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 				}
 
 				if summary.Outcome == "success" {
-					fmt.Println(repo, "succeeeded")
+					pr, _, err := patchwork.github.PullRequests.Create(repo.Owner, repo.Repo, &github.NewPullRequest{
+						Title: &opts.Message,
+						Head:  &opts.Branch,
+						Base:  pointers.String("master"),
+					})
+					if err != nil {
+						log.Fatal("could not create PR", err)
+					}
+
+					result, _, err := patchwork.github.PullRequests.Merge(repo.Owner, repo.Repo, *pr.Number, opts.Message)
+					if err != nil {
+						log.Fatal("could not merge PR", err)
+					}
+					if !*result.Merged {
+						log.Fatal("could not merge PR", err)
+					}
+					fmt.Println(repo, "success!")
 				} else {
 					fmt.Println(repo, "failed", summary)
 				}
