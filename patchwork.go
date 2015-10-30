@@ -83,10 +83,11 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 						continue
 					}
 
-					patchwork.logf("built branch %v of repo %v successfully", opts.Branch, repo)
+					patchwork.logf("successfully built branch %v of repo %v", opts.Branch, repo)
 					resultsLock.Lock()
 					results = append(results, summaries[0])
 					resultsLock.Unlock()
+					break
 				}
 			}(repo)
 		}

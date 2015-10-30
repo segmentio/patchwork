@@ -23,7 +23,7 @@ func main() {
 	n := strconv.Itoa(rand.Int())
 
 	opts := &patchwork.ApplyOptions{}
-	opts.Message = "Testing Patchwork!" + n
+	opts.Message = "Testing Patchwork! #" + n
 	opts.Branch = "test" + n
 	opts.Repos = []patchwork.Repository{
 		{"segmentio", "patchwork-test"},
