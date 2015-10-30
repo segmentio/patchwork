@@ -1,7 +1,7 @@
 package patchwork
 
 import (
-	"fmt"
+	"bytes"
 	"io/ioutil"
 	"log"
 	"os"
@@ -65,9 +65,7 @@ func (patchwork *Patchwork) Apply(options ApplyOptions, patch func(repo *github.
 		}
 		defer os.Remove(dir)
 
-		if err := exec.Command("git", "clone", *repository.SSHURL, dir).Run(); err != nil {
-			log.Fatal("could not clone directory", err)
-		}
+		patchwork.run(dir, "git", "clone", *repository.SSHURL, dir)
 
 		if err := os.Chdir(dir); err != nil {
 			log.Fatal("could not change directory", err)
@@ -75,22 +73,21 @@ func (patchwork *Patchwork) Apply(options ApplyOptions, patch func(repo *github.
 
 		patch(repository, dir)
 
-		out, err := exec.Command("git", "diff").Output()
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println(string(out))
+		patchwork.run(dir, "git", "add", "-A")
+		patchwork.run(dir, "git", "commit", "-m", options.Message)
+		patchwork.run(dir, "git", "push", "origin", "master:"+options.Branch)
+	}
+}
 
-		if err := exec.Command("git", "add", "-A").Run(); err != nil {
-			log.Fatal("could not run git add -A", err)
-		}
-
-		if err := exec.Command("git", "commit", "-m", options.Message).Run(); err != nil {
-			log.Fatal("could not commit files", err)
-		}
-
-		if err := exec.Command("git", "push", "origin", "master:"+options.Branch).Run(); err != nil {
-			log.Fatal("could not push", err)
-		}
+func (patchwork *Patchwork) run(dir, name string, args ...string) {
+	command := exec.Command(name, args...)
+	var out bytes.Buffer
+	command.Stdout = &out
+	command.Stderr = &out
+	command.Dir = dir
+	if err := command.Run(); err != nil {
+		log.Println("could not run", name, args)
+		log.Println(out.String())
+		log.Fatal(err)
 	}
 }
