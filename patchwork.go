@@ -21,6 +21,7 @@ import (
 type Patchwork struct {
 	github *github.Client
 	circle circle.CircleCI
+	Debug  bool
 }
 
 // New creates a Patchwork client.
@@ -68,6 +69,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 				for {
 					time.Sleep(2 * time.Minute)
 
+					patchwork.logf("fetching CI status for branch %v of %v", opts.Branch, repo)
 					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(repo.Owner, repo.Repo, opts.Branch, circle.RecentBuildsOptions{
 						Filter: pointers.String("completed"),
 					})
@@ -76,6 +78,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 					}
 
 					if len(summaries) == 0 {
+						patchwork.logf("no completed builds for branch %v of repo %v", opts.Branch, repo)
 						continue
 					}
 
@@ -90,19 +93,23 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 	}()
 
 	for _, repo := range opts.Repos {
+		patchwork.logf("fetching github information for %v", repo)
 		repository, _, err := patchwork.github.Repositories.Get(repo.Owner, repo.Repo)
 		if err != nil {
 			log.Fatal("could not fetch github information", err)
 		}
 
+		patchwork.logf("creating temp directory for %v", repo)
 		dir, err := ioutil.TempDir("", strconv.Itoa(*repository.ID))
 		if err != nil {
 			log.Fatal("could not create temporary directory", err)
 		}
 		defer os.Remove(dir)
 
+		patchwork.logf("cloning %v", repo)
 		run(dir, "git", "clone", *repository.SSHURL, dir)
 		// Checking out a branch is probably unnecessary.
+		patchwork.logf("checking out branch %v for %v", opts.Branch, repo)
 		run(dir, "git", "checkout", "-b", opts.Branch)
 
 		if err := os.Chdir(dir); err != nil {
@@ -111,6 +118,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 		patch(repository, dir)
 
+		patchwork.logf("pushing changes to branch %v for %v", opts.Branch, repo)
 		run(dir, "git", "add", "-A")
 		run(dir, "git", "commit", "-m", opts.Message)
 		run(dir, "git", "push", "origin", opts.Branch)
@@ -150,6 +158,12 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 		if !*result.Merged {
 			log.Fatal("could not merge PR", err)
 		}
+	}
+}
+
+func (patchwork *Patchwork) logf(format string, v ...interface{}) {
+	if patchwork.Debug {
+		log.Printf(format, v...)
 	}
 }
 
