@@ -15,11 +15,8 @@ import (
 
 // Patchwork lets you apply a patch across repos.
 type Patchwork struct {
-	github  *github.Client
-	circle  circle.CircleCI
-	Message string
-	Branch  string
-	Repos   []Repository
+	github *github.Client
+	circle circle.CircleCI
 }
 
 // New creates a Patchwork client.
@@ -41,9 +38,16 @@ type Repository struct {
 	Repo  string
 }
 
+// ApplyOptions holds arguments provided to an apply operation.
+type ApplyOptions struct {
+	Message string
+	Branch  string
+	Repos   []Repository
+}
+
 // Apply the given patch across the given repos.
-func (patchwork *Patchwork) Apply(patch func(repo *github.Repository, directory string)) {
-	for _, repo := range patchwork.Repos {
+func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) {
+	for _, repo := range opts.Repos {
 		repository, _, err := patchwork.github.Repositories.Get(repo.Owner, repo.Repo)
 		if err != nil {
 			log.Fatal("could not fetch github information", err)
@@ -64,13 +68,9 @@ func (patchwork *Patchwork) Apply(patch func(repo *github.Repository, directory 
 		patch(repository, dir)
 
 		patchwork.run(dir, "git", "add", "-A")
-		patchwork.run(dir, "git", "commit", "-m", patchwork.Message)
-		patchwork.run(dir, "git", "push", "origin", "master:"+patchwork.Branch)
+		patchwork.run(dir, "git", "commit", "-m", opts.Message)
+		patchwork.run(dir, "git", "push", "origin", "master:"+opts.Branch)
 	}
-}
-
-func (patchwork *Patchwork) wait(ch chan Repository) {
-
 }
 
 func (patchwork *Patchwork) run(dir, name string, args ...string) {
