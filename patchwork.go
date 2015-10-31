@@ -26,6 +26,7 @@ type Patchwork struct {
 	repos     []github.Repository
 	branch    string
 	commitMsg string
+	duration  time.Duration
 }
 
 // New creates a Patchwork client.
@@ -44,6 +45,7 @@ func New(githubToken, circleToken string) *Patchwork {
 		repos:     make([]github.Repository, 0),
 		branch:    "patch-" + id,
 		commitMsg: "Applying patch " + id,
+		duration:  time.Second * 360,
 	}
 }
 
@@ -72,6 +74,11 @@ func (patchwork *Patchwork) CommitMsg(msg string) {
 	patchwork.commitMsg = msg
 }
 
+// InitialWait sets the wait period to start at.
+func (patchwork *Patchwork) InitialWait(duration time.Duration) {
+	patchwork.duration = duration
+}
+
 type patchedCommit struct {
 	repo github.Repository
 	sha  string
@@ -93,9 +100,10 @@ func (patchwork *Patchwork) Apply() {
 			go func(patch patchedCommit) {
 				defer wg.Done()
 
-				for i := 0; i < 15; i++ {
+				for i := 1; i < 15; i++ {
 					patchwork.logVerbose("waiting for CI of branch %s@%s", *patch.repo.FullName, patchwork.branch)
-					time.Sleep(30 * time.Second)
+					// wait time decreases with iterations. Starts at 6 minutes.
+					time.Sleep(patchwork.duration / time.Duration(i))
 
 					patchwork.logVerbose("fetching CI status for %s@%s", *patch.repo.FullName, patchwork.branch)
 					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(*patch.repo.Owner.Login, *patch.repo.Name, patchwork.branch, circle.RecentBuildsOptions{

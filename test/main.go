@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 
@@ -17,6 +18,7 @@ import (
 func main() {
 	p := patchwork.New(os.Getenv("GITHUB_TOKEN"), os.Getenv("CIRCLE_TOKEN"))
 	p.Debug()
+	p.InitialWait(90 * time.Second)
 	p.Patch(func(repo github.Repository, dir string) {
 		// sed wasn't playing nicely :(
 		circleFile := dir + "/circle.yml"
