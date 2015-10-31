@@ -200,6 +200,6 @@ func (patchwork *Patchwork) Apply() {
 		if !*mergeResult.Merged {
 			log.Fatal("could not merge PR", err)
 		}
-		patchwork.logVerbose("merged PR for %s/%s", result.Username, result.Reponame)
+		patchwork.logDebug("merged PR for %s/%s", result.Username, result.Reponame)
 	}
 }
