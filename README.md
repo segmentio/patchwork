@@ -1,6 +1,8 @@
 # patchwork
 
 Patchwork is a library to that lets you apply a single change across mutliple Github repositories.
+Instead of blindly committing a change to a repository, patchwork lets you leverage your CI to
+test your changes and give you confidence that a commit is reliable.
 
 # Usage
 ```go
@@ -8,7 +10,7 @@ p := patchwork.New(os.Getenv("GITHUB_TOKEN"), os.Getenv("CIRCLE_TOKEN"))
 
 opts := &patchwork.ApplyOptions{}
 opts.Message = "Some Commit Message for this change."
-opts.Branch = "some-branch-for-this-update" // should be a branch that has not been created recently.
+opts.Branch = "some-branch-for-this-update"
 opts.Repos = []patchwork.Repository{
   // An array of repos to update.
   {"segment-integrations", "analytics.js-integration-mixpanel"},
