@@ -86,6 +86,8 @@ type patchedCommit struct {
 
 // Apply the patch.
 func (patchwork *Patchwork) Apply() {
+	patchwork.logVerbose("applying patch to %d repos", len(patchwork.repos))
+
 	patchesC := make(chan patchedCommit)
 	doneBuilds := make(chan bool)
 
