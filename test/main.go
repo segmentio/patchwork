@@ -5,11 +5,10 @@ package main
 import (
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"os"
-	"strconv"
 	"strings"
-	"time"
+
+	"golang.org/x/oauth2"
 
 	"github.com/google/go-github/github"
 	"github.com/segmentio/patchwork"
@@ -17,19 +16,8 @@ import (
 
 func main() {
 	p := patchwork.New(os.Getenv("GITHUB_TOKEN"), os.Getenv("CIRCLE_TOKEN"))
-	p.Debug = true
-
-	rand.Seed(time.Now().Unix())
-	n := strconv.Itoa(rand.Int())
-
-	opts := &patchwork.ApplyOptions{}
-	opts.Message = "Testing Patchwork! #" + n
-	opts.Branch = "test" + n
-	opts.Repos = []patchwork.Repository{
-		{"segmentio", "patchwork-test"},
-	}
-
-	p.Apply(*opts, func(repo *github.Repository, dir string) {
+	p.Debug()
+	p.Patch(func(repo github.Repository, dir string) {
 		// sed wasn't playing nicely :(
 		circleFile := dir + "/circle.yml"
 		circleConfig, err := ioutil.ReadFile(circleFile)
@@ -38,12 +26,23 @@ func main() {
 		}
 		lines := strings.Split(string(circleConfig), "\n")
 		for i, line := range lines {
-			lines[i] = strings.Replace(line, "echo 'testing'", "echo 'testing2'", 1)
+			lines[i] = strings.Replace(line, "testing", "testing2", 1)
 		}
 		output := strings.Join(lines, "\n")
 		err = ioutil.WriteFile(circleFile, []byte(output), 0644)
 		if err != nil {
-			log.Fatalln(err)
+			log.Fatal(err)
 		}
 	})
+
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: os.Getenv("GITHUB_TOKEN")})
+	tc := oauth2.NewClient(oauth2.NoContext, ts)
+	client := github.NewClient(tc)
+	repo, _, err := client.Repositories.Get("segmentio", "patchwork-test")
+	if err != nil {
+		log.Fatal(err)
+	}
+	p.AddRepo(*repo)
+
+	p.Apply()
 }

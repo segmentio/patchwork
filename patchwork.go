@@ -1,12 +1,11 @@
 package patchwork
 
 import (
-	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,9 +19,13 @@ import (
 
 // Patchwork lets you apply a patch across repos.
 type Patchwork struct {
-	github *github.Client
-	circle circle.CircleCI
-	Debug  bool
+	github    *github.Client
+	circle    circle.CircleCI
+	debug     bool
+	patch     func(repo github.Repository, directory string)
+	repos     []github.Repository
+	branch    string
+	commitMsg string
 }
 
 // New creates a Patchwork client.
@@ -32,32 +35,50 @@ func New(githubToken, circleToken string) *Patchwork {
 	)
 	tc := oauth2.NewClient(oauth2.NoContext, ts)
 
+	rand.Seed(time.Now().Unix())
+	id := strconv.Itoa(rand.Int())
+
 	return &Patchwork{
-		github: github.NewClient(tc),
-		circle: circle.New(circleToken),
+		github:    github.NewClient(tc),
+		circle:    circle.New(circleToken),
+		repos:     make([]github.Repository, 0),
+		branch:    "patch-" + id,
+		commitMsg: "Applying patch " + id,
 	}
 }
 
-// Repository is a repository to be patched.
-type Repository struct {
-	Owner string
-	Repo  string
+// Debug enables debugging output.
+func (patchwork *Patchwork) Debug() {
+	patchwork.debug = true
 }
 
-// ApplyOptions holds arguments provided to an apply operation.
-type ApplyOptions struct {
-	Message string
-	Branch  string
-	Repos   []Repository
+// Patch sets the patch to be applied.
+func (patchwork *Patchwork) Patch(p func(repo github.Repository, directory string)) {
+	patchwork.patch = p
+}
+
+// AddRepo adds a repo to be patched.
+func (patchwork *Patchwork) AddRepo(repo github.Repository) {
+	patchwork.repos = append(patchwork.repos, repo)
+}
+
+// Branch sets the branch to commit to.
+func (patchwork *Patchwork) Branch(branch string) {
+	patchwork.branch = branch
+}
+
+// CommitMsg sets the commit message.
+func (patchwork *Patchwork) CommitMsg(msg string) {
+	patchwork.commitMsg = msg
 }
 
 type patchedCommit struct {
-	repo Repository
+	repo github.Repository
 	sha  string
 }
 
-// Apply the given patch across the given repos.
-func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Repository, directory string)) {
+// Apply the patch.
+func (patchwork *Patchwork) Apply() {
 	patchesC := make(chan patchedCommit)
 	doneBuilds := make(chan bool)
 
@@ -72,12 +93,12 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 			go func(patch patchedCommit) {
 				defer wg.Done()
 
-				for {
-					patchwork.logf("waiting for CI of branch %v of %v", opts.Branch, patch.repo)
-					time.Sleep(1 * time.Minute)
+				for i := 0; i < 15; i++ {
+					patchwork.logVerbose("waiting for CI of branch %s@%s", *patch.repo.FullName, patchwork.branch)
+					time.Sleep(30 * time.Second)
 
-					patchwork.logf("fetching CI status for branch %v of %v", opts.Branch, patch.repo)
-					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(patch.repo.Owner, patch.repo.Repo, opts.Branch, circle.RecentBuildsOptions{
+					patchwork.logVerbose("fetching CI status for %s@%s", *patch.repo.FullName, patchwork.branch)
+					summaries, err := patchwork.circle.RecentBuildsForProjectBranch(*patch.repo.Owner.Login, *patch.repo.Name, patchwork.branch, circle.RecentBuildsOptions{
 						Filter: pointers.String("completed"),
 					})
 					if err != nil {
@@ -85,7 +106,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 					}
 
 					if len(summaries) == 0 {
-						patchwork.logf("no completed builds for branch %v of repo %v", opts.Branch, patch.repo)
+						patchwork.logVerbose("no completed builds for %s@%s", *patch.repo.FullName, patchwork.branch)
 						continue
 					}
 
@@ -96,7 +117,7 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 						}
 
 						if summary.CommitDetails[0].Commit == patch.sha {
-							patchwork.logf("successfully built branch %v for commit %s of repo %v", opts.Branch, patch.sha, patch.repo)
+							patchwork.logVerbose("successfully built commit %s for %s@%s", patch.sha, *patch.repo.FullName, patchwork.branch)
 							resultsLock.Lock()
 							results = append(results, summaries[0])
 							resultsLock.Unlock()
@@ -108,47 +129,41 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 					if success {
 						break
 					}
-					patchwork.logf("no completed builds on branch %v for commit %s of repo %v", opts.Branch, patch.sha, patch.repo)
+					patchwork.logVerbose("no completed builds for commit %s at %s@%s", patch.sha, patch.repo, patchwork.branch)
 				}
+				patchwork.logVerbose("no builds for commit %s at %s@%s", patch.sha, *patch.repo.FullName, patchwork.branch)
 			}(patch)
 		}
 		wg.Wait()
 		doneBuilds <- true
 	}()
 
-	for _, repo := range opts.Repos {
-		patchwork.logf("fetching github information for %v", repo)
-		repository, _, err := patchwork.github.Repositories.Get(repo.Owner, repo.Repo)
-		if err != nil {
-			log.Fatal("could not fetch github information", err)
-		}
-
-		patchwork.logf("creating temp directory for %v", repo)
-		dir, err := ioutil.TempDir("", strconv.Itoa(*repository.ID))
+	for _, repo := range patchwork.repos {
+		patchwork.logVerbose("creating temp directory for %s", *repo.FullName)
+		dir, err := ioutil.TempDir("", strconv.Itoa(*repo.ID))
 		if err != nil {
 			log.Fatal("could not create temporary directory", err)
 		}
 		defer os.Remove(dir)
 
-		patchwork.logf("cloning %v", repo)
-		run(dir, "git", "clone", *repository.SSHURL, dir)
+		patchwork.logVerbose("cloning %s", *repo.SSHURL)
+		patchwork.run(dir, "git", "clone", *repo.SSHURL, dir)
 		// Checking out a branch is probably unnecessary.
-		patchwork.logf("checking out branch %v for %v", opts.Branch, repo)
-		run(dir, "git", "checkout", "-b", opts.Branch)
+		patchwork.logVerbose("checking out branch %s for %s", patchwork.branch, *repo.FullName)
+		patchwork.run(dir, "git", "checkout", "-b", patchwork.branch)
 
 		if err := os.Chdir(dir); err != nil {
 			log.Fatal("could not change directory", err)
 		}
 
-		patch(repository, dir)
+		patchwork.patch(repo, dir)
 
-		patchwork.logf("pushing changes to branch %v for %v", opts.Branch, repo)
-		run(dir, "git", "add", "-A")
-		run(dir, "git", "commit", "-m", opts.Message)
-		run(dir, "git", "push", "origin", opts.Branch)
-
-		sha := strings.Trim(run(dir, "git", "rev-parse", "HEAD"), "\n ")
-		patchwork.logf("pushed commit %s to branch %v for %v", sha, opts.Branch, repo)
+		patchwork.logVerbose("pushing changes to %s@%s", *repo.FullName, patchwork.branch)
+		patchwork.run(dir, "git", "add", "-A")
+		patchwork.run(dir, "git", "commit", "-m", "\""+patchwork.commitMsg+"\"")
+		patchwork.run(dir, "git", "push", "origin", patchwork.branch)
+		sha := strings.Trim(patchwork.run(dir, "git", "rev-parse", "HEAD"), "\n ")
+		patchwork.logDebug("pushed commit %s to %s@%s", sha, *repo.FullName, patchwork.branch)
 
 		patchesC <- patchedCommit{repo, sha}
 	}
@@ -170,42 +185,21 @@ func (patchwork *Patchwork) Apply(opts ApplyOptions, patch func(repo *github.Rep
 
 	for _, result := range results {
 		pr, _, err := patchwork.github.PullRequests.Create(result.Username, result.Reponame, &github.NewPullRequest{
-			Title: &opts.Message,
-			Head:  &opts.Branch,
+			Title: &patchwork.commitMsg,
+			Head:  &patchwork.branch,
 			Base:  pointers.String("master"),
 		})
 		if err != nil {
 			log.Fatal("could not create PR", err)
 		}
 
-		result, _, err := patchwork.github.PullRequests.Merge(result.Username, result.Reponame, *pr.Number, opts.Message)
+		mergeResult, _, err := patchwork.github.PullRequests.Merge(result.Username, result.Reponame, *pr.Number, patchwork.commitMsg)
 		if err != nil {
 			log.Fatal("could not merge PR", err)
 		}
-		if !*result.Merged {
+		if !*mergeResult.Merged {
 			log.Fatal("could not merge PR", err)
 		}
+		patchwork.logVerbose("merged PR for %s/%s", result.Username, result.Reponame)
 	}
-}
-
-func (patchwork *Patchwork) logf(format string, v ...interface{}) {
-	if patchwork.Debug {
-		log.Printf(format, v...)
-	}
-}
-
-// Run will run command `name` in the given `dir` directory with the given
-// arguments. It also logs the output of the command in case of a failure.
-func run(dir, name string, args ...string) string {
-	command := exec.Command(name, args...)
-	var buf bytes.Buffer
-	command.Stdout = &buf
-	command.Stderr = &buf
-	command.Dir = dir
-	if err := command.Run(); err != nil {
-		log.Println("could not run", name, args)
-		log.Println(buf.String())
-		log.Fatal(err)
-	}
-	return buf.String()
 }
