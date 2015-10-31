@@ -20,5 +20,5 @@ p.Apply(*opts, func(repo *github.Repository, dir string) {
 ```
 
 Patchwork will clone your repos, apply your patch, push to a new branch and wait for their CI results.
-If any tests fail, it will print a message indicating
-open a Pull Request, wait on Circle CI to build it, and finally prompt you to apply the patch.
+If any tests fail, it will print a message indicating that the commit failed.
+If all tests succeed, it will open a Pull Request, and merge it for you.
