@@ -112,7 +112,7 @@ func (patchwork *Patchwork) Apply() {
 						Filter: pointers.String("completed"),
 					})
 					if err != nil {
-						log.Fatal("couldn't get recent builds for repo", patch.repo, err)
+						continue
 					}
 
 					if len(summaries) == 0 {
