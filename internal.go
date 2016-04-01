@@ -25,6 +25,8 @@ func run(p Patch, repos []*github.Repository) {
 	// todo: read https://godoc.org/github.com/google/go-github/github#RepositoriesService.GetCombinedStatus
 }
 
+// Clones repos locally, checks out a branch, applies a patch, commits and publishes the result.
+// Commits are published on the channel returned.
 func applyPatchesLocally(p Patch, repos []*github.Repository) chan<- commit {
 	out := make(chan commit)
 	go func() {
