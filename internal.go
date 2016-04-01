@@ -1,6 +1,7 @@
 package patchwork
 
 import (
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -22,13 +23,18 @@ type commit struct {
 func run(p Patch, repos []*github.Repository) {
 	commits := applyPatchesLocally(p, repos)
 
-	// todo: read https://godoc.org/github.com/google/go-github/github#RepositoriesService.GetCombinedStatus
+	for commit := range commits {
+		fmt.Println(commit)
+	}
+
+	// todo: implement https://godoc.org/github.com/google/go-github/github#RepositoriesService.GetCombinedStatus
 }
 
 // Clones repos locally, checks out a branch, applies a patch, commits and publishes the result.
 // Commits are published on the channel returned.
-func applyPatchesLocally(p Patch, repos []*github.Repository) chan<- commit {
-	out := make(chan commit)
+func applyPatchesLocally(p Patch, repos []*github.Repository) <-chan commit {
+	out := make(chan commit, len(repos))
+
 	go func() {
 		defer close(out)
 
@@ -45,7 +51,7 @@ func applyPatchesLocally(p Patch, repos []*github.Repository) chan<- commit {
 			}
 			defer os.Remove(dir)
 
-			ctx.Infof("cloning %s", *repo.SSHURL)
+			ctx.Debugf("cloning %s", *repo.SSHURL)
 			execCommand(ctx, dir, "git", "clone", *repo.SSHURL, dir)
 			execCommand(ctx, dir, "git", "checkout", "-b", branch)
 
@@ -65,6 +71,7 @@ func applyPatchesLocally(p Patch, repos []*github.Repository) chan<- commit {
 				commitMessage = genericCommitMessage
 			}
 
+			ctx.Debug("publishing patch")
 			execCommand(ctx, dir, "git", "add", "-A")
 			execCommand(ctx, dir, "git", "commit", "-m", "\""+commitMessage+"\"")
 			execCommand(ctx, dir, "git", "push", "origin", branch)
@@ -73,6 +80,7 @@ func applyPatchesLocally(p Patch, repos []*github.Repository) chan<- commit {
 			out <- commit{repo, sha}
 		}
 	}()
+
 	return out
 }
 
@@ -90,5 +98,6 @@ func execCommand(ctx *log.Entry, dir, name string, args ...string) string {
 			"output":  string(out),
 		}).Fatal("could not run command")
 	}
+
 	return string(out)
 }
