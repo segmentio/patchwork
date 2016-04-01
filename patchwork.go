@@ -1,6 +1,12 @@
 package patchwork
 
-import "github.com/google/go-github/github"
+import (
+	"os"
+
+	"github.com/apex/log"
+	"github.com/apex/log/handlers/cli"
+	"github.com/google/go-github/github"
+)
 
 // Options defines how a patch is processed.
 type Options struct {
@@ -28,4 +34,5 @@ func (f PatchFunc) Patch(r *github.Repository, d string) (Options, error) {
 // patch, commits the results to a branch on Github, waits for all checks,
 // and merges the branches if *every* check passes.
 func Apply(p Patch, repos []*github.Repository) {
+	log.SetHandler(cli.New(os.Stdout))
 }
