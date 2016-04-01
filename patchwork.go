@@ -35,5 +35,6 @@ func (f PatchFunc) Patch(r *github.Repository, d string) (Options, error) {
 // and merges the branches if *every* check passes.
 func Apply(p Patch, repos []*github.Repository) {
 	log.SetHandler(cli.New(os.Stdout))
+	log.SetLevel(log.DebugLevel)
 	run(p, repos)
 }

@@ -60,12 +60,12 @@ func applyPatchesLocally(p Patch, repos []*github.Repository) <-chan commit {
 				ctx.WithError(err).Fatalf("could not change directory to %s", dir)
 			}
 
+			ctx.Debug("patching")
 			// todo: defer recover since we're running 3rd party code.
 			opts, err := p.Patch(repo, dir)
 			if err != nil {
 				ctx.WithError(err).Fatalf("could not change apply patch")
 			}
-
 			commitMessage := opts.CommitMessage
 			if commitMessage == "" {
 				commitMessage = genericCommitMessage
